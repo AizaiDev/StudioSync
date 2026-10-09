@@ -27,6 +27,8 @@ const HTTP_SERVER_ERROR_FIRST = 500
 const REQUEST_ERROR_PREFIX = "GitHub "
 const PASSING_CONCLUSIONS = { success = true, skipped = true, neutral = true }
 const SUPERSEDED_CONCLUSION = "cancelled"
+const GRAPHQL_PATH = "/graphql"
+const GRAPHQL_BATCH_SIZE = 50
 
 export type WorkflowRun = {
 	id: number,
@@ -46,6 +48,11 @@ export type Tree = {
 	directories: { [string]: string },
 }
 
+type RequestOptions = {
+	headers: { [string]: string }?,
+	body: string?,
+}
+
 type Response = {
 	StatusCode: number,
 	Body: string,
@@ -59,6 +66,7 @@ export type Client = {
 	headEtag: string?,
 	headSha: string?,
 	blobs: { [string]: string },
+	graphqlUnavailable: boolean,
 	trees: { [string]: Tree },
 	commitTitles: { [string]: string },
 	HeadSha: (self: Client, branch: string) -> string,
@@ -83,17 +91,22 @@ local function IsRateLimited(response: Response): boolean
 	return HeaderValue(response, "X-RateLimit-Remaining") == "0" or HeaderValue(response, "Retry-After") ~= nil
 end
 
-local function Request(client: Client, path: string, accept: string, extraHeaders: { [string]: string }?): Response
+local function Request(client: Client, path: string, accept: string, options: RequestOptions?): Response
 	const token = client.token
 	const headers = {
 		Authorization = `Bearer {token}`,
 		Accept = accept,
 		["X-GitHub-Api-Version"] = API_VERSION,
 	}
+	const extraHeaders = if options then options.headers else nil
 	if extraHeaders then
 		for name, value in extraHeaders do
 			headers[name] = value
 		end
+	end
+	const body = if options then options.body else nil
+	if body then
+		headers["Content-Type"] = "application/json"
 	end
 
 	local lastError = `{REQUEST_ERROR_PREFIX}request for {path} made no attempt`
@@ -103,8 +116,9 @@ local function Request(client: Client, path: string, accept: string, extraHeader
 		attempt += 1
 		const ok, response = pcall(HttpService.RequestAsync, HttpService, {
 			Url = API_ROOT .. path,
-			Method = "GET",
+			Method = if body then "POST" else "GET",
 			Headers = headers,
+			Body = body,
 		})
 		if
 			not ok
@@ -164,7 +178,7 @@ function GitHub.HeadSha(self: Client, branch: string): string
 		self,
 		`/repos/{self.repository}/commits/{branch}`,
 		ACCEPT_SHA,
-		if self.headEtag then { ["If-None-Match"] = self.headEtag } else nil
+		{ headers = if self.headEtag then { ["If-None-Match"] = self.headEtag } else nil }
 	)
 	if response.StatusCode == HTTP_NOT_MODIFIED and self.headSha then
 		return self.headSha
@@ -269,27 +283,22 @@ function GitHub.CommitTitle(self: Client, sha: string): string
 	return title
 end
 
-function GitHub.FetchBlobs(self: Client, shas: { string }, maxParallel: number)
-	const queue = {}
-	for _, sha in shas do
-		if not self.blobs[sha] and not table.find(queue, sha) then
-			table.insert(queue, sha)
-		end
-	end
-	if #queue == 0 then
+local function RunParallel<T>(items: { T }, maxParallel: number, Work: (item: T) -> ())
+	if #items == 0 then
 		return
 	end
-
 	local nextIndex = 1
 	local running = 0
 	local failure: string? = nil
 	const finished = Instance.new("BindableEvent")
 
 	local function Worker()
-		while failure == nil and nextIndex <= #queue do
-			const sha = queue[nextIndex]
+		while failure == nil and nextIndex <= #items do
+			const item = items[nextIndex]
 			nextIndex += 1
-			const ok, problem = pcall(GitHub.Blob, self, sha)
+			const ok, problem = pcall(function()
+				Work(item)
+			end)
 			if not ok then
 				failure = tostring(problem)
 			end
@@ -300,17 +309,77 @@ function GitHub.FetchBlobs(self: Client, shas: { string }, maxParallel: number)
 		end
 	end
 
-	running = math.min(maxParallel, #queue)
+	running = math.min(maxParallel, #items)
 	for _ = 1, running do
 		task.spawn(Worker)
 	end
-	if running > 0 then
-		finished.Event:Wait()
-	end
+	finished.Event:Wait()
 	finished:Destroy()
 	if failure then
 		error(failure, 0)
 	end
+end
+
+local function FetchBlobBatch(self: Client, shas: { string })
+	const owner, name = string.match(self.repository, "^([^/]+)/([^/]+)$")
+	const fields = {}
+	for index, sha in shas do
+		table.insert(fields, `b{index}: object(oid: "{sha}") \{ ... on Blob \{ text isTruncated } }`)
+	end
+	const query = `query \{ repository(owner: "{owner}", name: "{name}") \{ {table.concat(fields, " ")} } }`
+	const response = Request(self, GRAPHQL_PATH, ACCEPT_JSON, { body = HttpService:JSONEncode({ query = query }) })
+	const body = DecodeBody(response)
+	const repository = type(body.data) == "table" and body.data.repository
+	if type(repository) ~= "table" then
+		error(`{REQUEST_ERROR_PREFIX}GraphQL returned no repository for {self.repository}`, 0)
+	end
+	for index, sha in shas do
+		const blob = repository[`b{index}`]
+		if type(blob) == "table" and type(blob.text) == "string" and blob.isTruncated == false then
+			self.blobs[sha] = blob.text
+		end
+	end
+end
+
+local function FetchBlobsThroughGraphQL(self: Client, shas: { string }, maxParallel: number)
+	const batches: { { string } } = {}
+	for first = 1, #shas, GRAPHQL_BATCH_SIZE do
+		table.insert(batches, table.move(shas, first, math.min(first + GRAPHQL_BATCH_SIZE - 1, #shas), 1, {}))
+	end
+	const refusedBefore = self.refused
+	const ok = pcall(RunParallel, batches, maxParallel, function(batch: { string })
+		FetchBlobBatch(self, batch)
+	end)
+	if not ok then
+		self.graphqlUnavailable = true
+		self.refused = refusedBefore
+	end
+end
+
+--- Downloads every blob in shas that is not cached yet, in batches through the GraphQL API, then one
+--- by one for any blob a batch did not return. Raises the first request error.
+function GitHub.FetchBlobs(self: Client, shas: { string }, maxParallel: number)
+	const queue = {}
+	for _, sha in shas do
+		if not self.blobs[sha] and not table.find(queue, sha) then
+			table.insert(queue, sha)
+		end
+	end
+	if #queue == 0 then
+		return
+	end
+	if not self.graphqlUnavailable then
+		FetchBlobsThroughGraphQL(self, queue, maxParallel)
+	end
+	const remaining = {}
+	for _, sha in queue do
+		if not self.blobs[sha] then
+			table.insert(remaining, sha)
+		end
+	end
+	RunParallel(remaining, maxParallel, function(sha: string)
+		GitHub.Blob(self, sha)
+	end)
 end
 
 function GitHub.New(repository: string, token: string): Client
@@ -321,6 +390,7 @@ function GitHub.New(repository: string, token: string): Client
 		headEtag = nil,
 		headSha = nil,
 		blobs = {},
+		graphqlUnavailable = false,
 		trees = {},
 		commitTitles = {},
 		HeadSha = GitHub.HeadSha,
