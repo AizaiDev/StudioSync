@@ -1,6 +1,7 @@
 --!strict
 
 const CollectionService = game:GetService("CollectionService")
+const ScriptEditorService = game:GetService("ScriptEditorService")
 
 const ProjectMap = require(script.Parent.ProjectMap)
 const SyncPlan = require(script.Parent.SyncPlan)
@@ -17,6 +18,9 @@ export type Result = {
 }
 
 type Blobs = { [string]: string }
+
+-- Assigning Source fails at this length or more; ScriptEditorService:UpdateSourceAsync has no such limit.
+const MAX_ASSIGNABLE_SOURCE_LENGTH = 200000
 
 local function WriteProperties(instance: Instance, properties: { [string]: any })
 	for name, value in properties do
@@ -43,6 +47,15 @@ local function ClearAttributes(instance: Instance, names: { string })
 end
 
 local function WriteSource(instance: Instance, source: string)
+	if not (instance:IsA("ModuleScript") or instance:IsA("Script")) then
+		return
+	end
+	if #source >= MAX_ASSIGNABLE_SOURCE_LENGTH then
+		ScriptEditorService:UpdateSourceAsync(instance :: LuaSourceContainer, function()
+			return source
+		end)
+		return
+	end
 	if instance:IsA("ModuleScript") then
 		instance.Source = source
 		return
