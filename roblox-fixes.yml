@@ -1,0 +1,24 @@
+# Hand-maintained corrections layered over the generated roblox.yml
+# (selene.toml chains them via std = "roblox-fixes+roblox"; the first
+# library in the chain wins when both define a global).
+# `name` must stay "roblox": selene keys its roblox-specific lints off the
+# resolved library name, and the first library in the chain provides it.
+# generate-roblox-std caps PhysicalProperties.new at 3 args; the live API
+# accepts up to 6: (density, friction, elasticity, frictionWeight,
+# elasticityWeight, acousticAbsorption).
+name: roblox
+globals:
+  PhysicalProperties.new:
+    args:
+    - type: any
+    - required: false
+      type: number
+    - required: false
+      type: number
+    - required: false
+      type: number
+    - required: false
+      type: number
+    - required: false
+      type: number
+    must_use: true

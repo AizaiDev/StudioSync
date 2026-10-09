@@ -1,0 +1,4 @@
+*.rbxm
+*.rbxl
+sourcemap.json
+studio-sync-loader/BuildInfo.luau
