@@ -11,6 +11,9 @@ const ACCEPT_JSON = "application/vnd.github+json"
 const ACCEPT_SHA = "application/vnd.github.sha"
 const ACCEPT_RAW = "application/vnd.github.raw+json"
 const MAX_ATTEMPTS = 3
+const HTTP_BUDGET_ERROR = "Number of requests exceeded limit"
+const HTTP_BUDGET_WAIT_SECONDS = 10
+const MAX_HTTP_BUDGET_WAITS = 12
 const RETRY_BASE_SECONDS = 2
 const RUNS_PAGE_SIZE = 100
 const HTTP_OK_FIRST = 200
@@ -94,12 +97,25 @@ local function Request(client: Client, path: string, accept: string, extraHeader
 	end
 
 	local lastError = `{REQUEST_ERROR_PREFIX}request for {path} made no attempt`
-	for attempt = 1, MAX_ATTEMPTS do
+	local budgetWaits = 0
+	local attempt = 0
+	while attempt < MAX_ATTEMPTS do
+		attempt += 1
 		const ok, response = pcall(HttpService.RequestAsync, HttpService, {
 			Url = API_ROOT .. path,
 			Method = "GET",
 			Headers = headers,
 		})
+		if
+			not ok
+			and string.find(tostring(response), HTTP_BUDGET_ERROR, 1, true)
+			and budgetWaits < MAX_HTTP_BUDGET_WAITS
+		then
+			budgetWaits += 1
+			attempt -= 1
+			task.wait(HTTP_BUDGET_WAIT_SECONDS)
+			continue
+		end
 		if ok then
 			const status = response.StatusCode
 			if (status >= HTTP_OK_FIRST and status <= HTTP_OK_LAST) or status == HTTP_NOT_MODIFIED then

@@ -567,8 +567,18 @@ local function StartSyncing(context: Context, place: Config.Place, client: GitHu
 					table.insert(needed, op.entry.blob)
 				end
 			end
-			Heartbeat()
-			client:FetchBlobs(needed, Config.MAX_PARALLEL_FETCHES)
+			for first = 1, #needed, Config.FETCH_BATCH_SIZE do
+				Heartbeat()
+				RenewLock()
+				if #needed > Config.FETCH_BATCH_SIZE then
+					SetStatus(Working(`Downloading {first - 1} of {#needed} files for {Short(head)}`))
+				end
+				const batch = table.move(needed, first, math.min(first + Config.FETCH_BATCH_SIZE - 1, #needed), 1, {})
+				client:FetchBlobs(batch, Config.MAX_PARALLEL_FETCHES)
+				if stopped then
+					return Working(STOPPED_TEXT)
+				end
+			end
 			Heartbeat()
 			RenewLock()
 			if stopped then
