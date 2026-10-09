@@ -1,0 +1,6 @@
+std = "roblox-fixes+roblox"
+
+exclude = ["**/*.spec.luau"]
+
+[lints]
+unused_variable = "allow"

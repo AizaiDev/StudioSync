@@ -1,0 +1,71 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        uses: CompeyDev/setup-rokit@1d9390883f7ebce19d48f5b8d006e11d387c92ab # v0.2.1
+        with:
+          cache: true
+          token: ${{ github.token }}
+
+      - name: stylua --check
+        run: stylua --check .
+
+      - name: selene
+        run: selene studio-sync studio-sync-loader
+
+      - name: Lune specs
+        run: lune run tests/run
+
+      - name: rojo build
+        run: rojo build default.project.json -o /tmp/StudioSync.rbxm
+
+  publish:
+    name: publish the plugin
+    needs: ci
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        uses: CompeyDev/setup-rokit@1d9390883f7ebce19d48f5b8d006e11d387c92ab # v0.2.1
+        with:
+          cache: true
+          token: ${{ github.token }}
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE: studio-sync
+        run: |
+          plugin="$RUNNER_TEMP/StudioSync.rbxm"
+          pwsh -NoProfile -File scripts/build-plugin.ps1 -Ref HEAD -OutFile "$plugin"
+          notes="Built from $(git rev-parse --short HEAD). Download StudioSync.rbxm, open Studio's Plugins tab > Plugins Folder, put the file there and restart Studio. See the README for tokens."
+          if gh release view "$RELEASE" >/dev/null 2>&1; then
+            gh release upload "$RELEASE" "$plugin" --clobber
+            gh release edit "$RELEASE" --notes "$notes"
+          else
+            gh release create "$RELEASE" "$plugin" --title "Studio Sync" --notes "$notes" --target "$GITHUB_SHA"
+          fi

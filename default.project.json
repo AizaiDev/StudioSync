@@ -1,0 +1,9 @@
+{
+	"name": "StudioSync",
+	"tree": {
+		"$path": "studio-sync-loader",
+		"Bundled": {
+			"$path": "studio-sync"
+		}
+	}
+}
