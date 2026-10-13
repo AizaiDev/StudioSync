@@ -76,7 +76,7 @@ finish a check within a minute and a half, the plugin goes back to the version i
 prints why to Output; a version that finished a check is the one it starts with next time.
 Reinstall the plugin only when Output says this repository has a newer loader.
 
-While a synced place is open in Edit mode, it checks the game's `main` every 20 seconds. When the
+While a synced place is open in Edit mode, it checks the game's `main` every 5 seconds. When the
 `ci` workflow on `main`'s head commit is green, it writes what changed into that place, mapped
 through the place's project file: new instances are created, edited scripts get their new source,
 and an instance git removed since the last synced commit is removed too, unless it still holds

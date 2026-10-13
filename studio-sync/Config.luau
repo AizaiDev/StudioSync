@@ -84,7 +84,7 @@ return {
 	GAMES = { CLOUD_SEEKERS, FLOODED, EMBLEM_TALES },
 	AttributesFor = AttributesFor,
 	OwnerOf = OwnerOf,
-	POLL_SECONDS = 20,
+	POLL_SECONDS = 5,
 	RECHECK_SECONDS = 300,
 	MAX_AUTO_DELETES = 20,
 	MAX_PARALLEL_FETCHES = 6,
