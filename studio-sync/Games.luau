@@ -11,7 +11,7 @@ export type Added = { ok: true, repositories: { string }, game: Config.Game } | 
 
 const Games = {}
 
---- Whether text is a GitHub repository written as owner/repo. No GitHub token contains a slash.
+--- Whether text is a GitHub repository written as owner/repo.
 function Games.IsRepository(text: string): boolean
 	return string.match(text, REPOSITORY_PATTERN) ~= nil
 end
