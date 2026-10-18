@@ -272,6 +272,7 @@ do
 	check("owner/repo reads as a repository", Games.IsRepository("SomeFriend/my-game.v2"))
 	check("a token does not read as a repository", not Games.IsRepository("github_pat_11ABCDEFG0123456789"))
 	check("a URL does not read as a repository", not Games.IsRepository("https://github.com/a/b"))
+	check("a removal does not read as a repository", not Games.IsRepository("-SomeFriend/my-game"))
 	check("a prefix capitalises each word of the name", Games.PrefixFor("SomeFriend/my-cool_game") == "MyCoolGameSync")
 	check(
 		"a prefix ignores how the name was typed",
@@ -294,7 +295,7 @@ do
 		check("an added repository is kept in lower case", added.repositories[1] == "somefriend/my-game")
 		check(
 			"an added game keeps its token under its own repository",
-			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend/my-game"
+			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend_my-game"
 		)
 		local games = Games.All(added.repositories)
 		local last = games[#games]

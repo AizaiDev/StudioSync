@@ -894,7 +894,8 @@ function Main.Start(context: Context): () -> ()
 		return Games.All(plugin:GetSetting(Config.SETTINGS.games))
 	end
 
-	local pendingGame: Games.Added? = nil
+	local pendingGame: Config.Game? = nil
+	local sessionGame: Config.Game? = nil
 
 	local FindPlace: () -> ()
 
@@ -916,7 +917,8 @@ function Main.Start(context: Context): () -> ()
 		end
 	end
 
-	local function SaveAddedGame(added: Games.Added)
+	local function SaveAddedGame(gameInfo: Config.Game)
+		const added = Games.Add(plugin:GetSetting(Config.SETTINGS.games), gameInfo.repository)
 		if added.ok and added.isNew then
 			plugin:SetSetting(Config.SETTINGS.games, added.repositories)
 			print(`{LOG_PREFIX} added {added.game.repository}; its attributes start {added.game.attributePrefix}`)
@@ -932,11 +934,11 @@ function Main.Start(context: Context): () -> ()
 		const token = SavedTokenFor(gameInfo)
 		if token and not Probe(gameInfo, token).problem then
 			pendingGame = nil
-			SaveAddedGame(added)
+			SaveAddedGame(gameInfo)
 			ReloadAfterTokenSaved()
 			return nil
 		end
-		pendingGame = added
+		pendingGame = if added.isNew then gameInfo else nil
 		return `Now paste a read-only token that can read {gameInfo.repository}. It is added once GitHub accepts the token.`
 	end
 
@@ -949,21 +951,33 @@ function Main.Start(context: Context): () -> ()
 		plugin:SetSetting(Config.SETTINGS.games, result.repositories)
 		plugin:SetSetting(removed.tokenSetting, nil)
 		print(`{LOG_PREFIX} removed {removed.repository} and its token`)
+		const pending = pendingGame
+		if pending and pending.repository == removed.repository then
+			pendingGame = nil
+		end
+		const current = session
+		const currentGame = sessionGame
+		if current and currentGame and currentGame.repository == removed.repository then
+			session = nil
+			sessionGame = nil
+			current.Stop()
+			task.spawn(FindPlace)
+		end
 		return nil
 	end
 
 	local function SaveAnyToken(candidate: string): string?
-		if Games.IsRepository(candidate) then
-			return AddGame(candidate)
-		end
 		const removal = string.match(candidate, REMOVE_PATTERN)
 		if removal and Games.IsRepository(removal) then
 			return RemoveGame(removal)
 		end
+		if Games.IsRepository(candidate) then
+			return AddGame(candidate)
+		end
 		const games = AllGames()
 		const pending = pendingGame
-		if pending and pending.ok and pending.isNew then
-			table.insert(games, pending.game)
+		if pending then
+			table.insert(games, pending)
 		end
 		local lastProblem = "it cannot read any game's repository"
 		local savedFor: { string } = {}
@@ -972,8 +986,8 @@ function Main.Start(context: Context): () -> ()
 			if not probe.problem then
 				plugin:SetSetting(gameInfo.tokenSetting, candidate)
 				table.insert(savedFor, gameInfo.repository)
-				if pending and pending.ok and pending.game == gameInfo then
-					SaveAddedGame(pending)
+				if gameInfo == pending then
+					SaveAddedGame(gameInfo)
 				end
 			elseif not probe.refused then
 				lastProblem = probe.problem :: string
@@ -1052,6 +1066,7 @@ function Main.Start(context: Context): () -> ()
 			if entry then
 				searching = false
 				CloseTokenOverlay()
+				sessionGame = gameInfo
 				session =
 					StartSyncing(context, { label = entry.label, project = entry.project, game = gameInfo }, client)
 				return

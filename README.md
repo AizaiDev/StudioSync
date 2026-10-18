@@ -60,7 +60,7 @@ Then make a fine-grained token for it, as "Tokens" describes, and in Studio:
 
 Each person who works on the game does the same once per computer. The plugin keeps an added game's
 token under that repository, so it never replaces the token of another game from the same account.
-Type `-owner/repo` in the box to remove a game you added, with its token.
+Type `-owner/repo` in the box to remove a game you added, with its token; a place of that game that is syncing stops.
 
 The plugin names the game's attributes after the repository, ignoring letter case: the name in
 lower case with each word capitalised, the separators dropped, then `Sync`, so `owner/my-game` and

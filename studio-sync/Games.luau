@@ -2,7 +2,7 @@
 
 const Config = require(script.Parent.Config)
 
-const REPOSITORY_PATTERN = "^[%w%-]+/[%w%-%._]+$"
+const REPOSITORY_PATTERN = "^%w[%w%-]*/[%w%-%._]+$"
 const WORD_PATTERN = "[%w]+"
 const PREFIX_SUFFIX = "Sync"
 const DEFAULT_BRANCH = "main"
@@ -47,7 +47,7 @@ local function FromRepository(repository: string): Config.Game
 		repository = canonical,
 		branch = DEFAULT_BRANCH,
 		attributePrefix = Games.PrefixFor(canonical),
-		tokenSetting = Config.SETTINGS.tokenPrefix .. canonical,
+		tokenSetting = Config.SETTINGS.tokenPrefix .. (string.gsub(canonical, "/", "_")),
 	}
 end
 
