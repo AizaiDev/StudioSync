@@ -7,6 +7,7 @@ const RunService = game:GetService("RunService")
 
 const Apply = require(script.Parent.Apply)
 const Config = require(script.Parent.Config)
+const Games = require(script.Parent.Games)
 const GitHub = require(script.Parent.GitHub)
 const Overlay = require(script.Parent.Overlay)
 const Places = require(script.Parent.Places)
@@ -22,9 +23,9 @@ const PAUSED_TEXT = "Auto-sync is paused for everyone in this place. Press Sync 
 const ENGINE_FILE_PATTERN = "^([%w_]+)%.luau$"
 const STOPPED_TEXT = "Stopped, because another copy of the plugin took over"
 const NO_TOKENS_TEXT =
-	"No GitHub tokens yet. Paste your game's read-only token, which its owner sends you, in the box above the status pill."
+	"No GitHub tokens yet. Paste your game's read-only token in the box above the status pill. For a game Studio Sync does not know yet, type its repository as owner/repo first."
 const ADD_TOKEN_TEXT =
-	"Paste a read-only GitHub token for another game, or a new one to replace a token GitHub refused."
+	"Paste a read-only GitHub token for another game, or a new one to replace a token GitHub refused. Type owner/repo to add a game."
 
 --- status is nil on a loader installed before the status overlay existed.
 export type Buttons = {
@@ -853,6 +854,8 @@ local function StartSyncing(context: Context, place: Config.Place, client: GitHu
 	}
 end
 
+type TokenProbe = { refused: boolean, problem: string? }
+
 function Main.Start(context: Context): () -> ()
 	if not RunService:IsEdit() then
 		return function() end
@@ -887,29 +890,66 @@ function Main.Start(context: Context): () -> ()
 		end
 	end
 
+	local function AllGames(): { Config.Game }
+		return Games.All(plugin:GetSetting(Config.SETTINGS.games))
+	end
+
 	local FindPlace: () -> ()
 
+	local function Probe(gameInfo: Config.Game, token: string): TokenProbe
+		const probe = GitHub.New(gameInfo.repository, token)
+		const ok, problem = pcall(function()
+			probe:WorkflowRuns(probe:HeadSha(gameInfo.branch))
+		end)
+		return { refused = probe.refused, problem = if ok then nil else tostring(problem) }
+	end
+
+	local function TokenSaved()
+		const current = session
+		if current then
+			current.ReloadToken()
+		else
+			CloseTokenOverlay()
+			task.spawn(FindPlace)
+		end
+	end
+
+	local function AddGame(repository: string): string?
+		const added = Games.Add(plugin:GetSetting(Config.SETTINGS.games), repository)
+		if not added.ok then
+			return `Could not add it: {added.problem}.`
+		end
+		plugin:SetSetting(Config.SETTINGS.games, added.repositories)
+		const gameInfo = added.game
+		const owner = Config.OwnerOf(gameInfo.repository)
+		print(`{LOG_PREFIX} added {gameInfo.repository}; its attributes start {gameInfo.attributePrefix}`)
+		const token = SavedTokenFor(owner)
+		if not token then
+			return `Added {gameInfo.repository}. Now paste a read-only token that can read it.`
+		end
+		const probe = Probe(gameInfo, token)
+		if probe.problem then
+			return `Added {gameInfo.repository}, but the saved {owner} token cannot read it ({probe.problem}). Paste one that can.`
+		end
+		TokenSaved()
+		return nil
+	end
+
 	local function SaveAnyToken(candidate: string): string?
+		if Games.IsRepository(candidate) then
+			return AddGame(candidate)
+		end
 		local lastProblem = "it cannot read any game's repository"
-		for _, gameInfo in Config.GAMES do
-			const probe = GitHub.New(gameInfo.repository, candidate)
-			const ok, problem = pcall(function()
-				probe:WorkflowRuns(probe:HeadSha(gameInfo.branch))
-			end)
-			if ok then
+		for _, gameInfo in AllGames() do
+			const probe = Probe(gameInfo, candidate)
+			if not probe.problem then
 				const owner = Config.OwnerOf(gameInfo.repository)
 				plugin:SetSetting(Config.SETTINGS.tokenPrefix .. owner, candidate)
 				print(`{LOG_PREFIX} saved the {owner} token`)
-				const current = session
-				if current then
-					current.ReloadToken()
-				else
-					CloseTokenOverlay()
-					task.spawn(FindPlace)
-				end
+				TokenSaved()
 				return nil
 			elseif not probe.refused then
-				lastProblem = tostring(problem)
+				lastProblem = probe.problem
 			end
 		end
 		return `That token did not work: {lastProblem}. It needs Read on Contents, Actions and Metadata.`
@@ -942,7 +982,7 @@ function Main.Start(context: Context): () -> ()
 		local anyToken = false
 		local unreachable = false
 		local stampedWithoutToken: Config.Game? = nil
-		for _, gameInfo in Config.GAMES do
+		for _, gameInfo in AllGames() do
 			const owner = Config.OwnerOf(gameInfo.repository)
 			const token = SavedTokenFor(owner)
 			const stamped = type(host:GetAttribute(Config.AttributesFor(gameInfo).commit)) == "string"

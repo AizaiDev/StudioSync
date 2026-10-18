@@ -74,6 +74,7 @@ return {
 	CI_WORKFLOW = "ci",
 	SETTINGS = {
 		tokenPrefix = "StudioSync_Token_",
+		games = "StudioSync_Games",
 		autoSync = "StudioSync_AutoSync",
 		showStatus = "StudioSync_ShowStatus",
 		engine = "StudioSync_EngineCode",

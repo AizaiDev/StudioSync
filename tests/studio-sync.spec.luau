@@ -49,6 +49,7 @@ local ProjectMap = load("ProjectMap")
 local SyncPlan = load("SyncPlan")
 local GitHub = load("GitHub")
 local Places = load("Places")
+local Games = load("Games")
 
 local function git(args: { string }): string
 	local result = process.exec("git", args)
@@ -265,6 +266,48 @@ do
 	for name, setting in Config.SETTINGS do
 		check(`setting {name} is namespaced`, setting:sub(1, #"StudioSync_") == "StudioSync_")
 	end
+end
+
+do
+	check("owner/repo reads as a repository", Games.IsRepository("SomeFriend/my-game.v2"))
+	check("a token does not read as a repository", not Games.IsRepository("github_pat_11ABCDEFG0123456789"))
+	check("a URL does not read as a repository", not Games.IsRepository("https://github.com/a/b"))
+	check("a prefix capitalises each word of the name", Games.PrefixFor("SomeFriend/my-cool_game") == "MyCoolGameSync")
+	check("a built-in game keeps its prefix", Games.PrefixFor("AizaiDev/CloudSeekers") == "CloudSeekersSync")
+
+	local builtIn = Games.All(nil)
+	check("with nothing saved, the games are the built-in ones", #builtIn == #Config.GAMES)
+
+	local added = Games.Add(nil, "SomeFriend/my-game")
+	check("a new repository is added", added.ok and #added.repositories == 1 and added.game.branch == "main")
+	if added.ok then
+		local games = Games.All(added.repositories)
+		local last = games[#games]
+		check(
+			"a saved game comes after the built-in ones",
+			#games == #Config.GAMES + 1 and last.repository == "SomeFriend/my-game"
+		)
+		check(
+			"a saved game's attributes start with its prefix",
+			Config.AttributesFor(last).commit == "MyGameSyncCommit"
+		)
+		local again = Games.Add(added.repositories, "somefriend/MY-GAME")
+		check("adding a saved game again changes nothing", again.ok and #again.repositories == 1)
+	end
+
+	local builtInAgain = Games.Add(nil, "aizaidev/cloudseekers")
+	check(
+		"adding a built-in game returns it unsaved",
+		builtInAgain.ok and #builtInAgain.repositories == 0 and builtInAgain.game.attributePrefix == "CloudSeekersSync"
+	)
+	local clash = Games.Add(nil, "SomeFriend/Cloud-Seekers")
+	check("a repository whose prefix another game uses is refused", not clash.ok)
+	check("text that is not owner/repo is refused", not Games.Add(nil, "my-game").ok)
+	check("a saved list that is not a list is ignored", #Games.All("broken") == #Config.GAMES)
+	check(
+		"a saved entry that is not owner/repo is ignored",
+		#Games.All({ "SomeFriend/my-game", 42, "not a repo" }) == #Config.GAMES + 1
+	)
 end
 
 do
