@@ -49,6 +49,7 @@ local ProjectMap = load("ProjectMap")
 local SyncPlan = load("SyncPlan")
 local GitHub = load("GitHub")
 local Places = load("Places")
+local Games = load("Games")
 
 local function git(args: { string }): string
 	local result = process.exec("git", args)
@@ -265,6 +266,79 @@ do
 	for name, setting in Config.SETTINGS do
 		check(`setting {name} is namespaced`, setting:sub(1, #"StudioSync_") == "StudioSync_")
 	end
+end
+
+do
+	check("owner/repo reads as a repository", Games.IsRepository("SomeFriend/my-game.v2"))
+	check("a token does not read as a repository", not Games.IsRepository("github_pat_11ABCDEFG0123456789"))
+	check("a URL does not read as a repository", not Games.IsRepository("https://github.com/a/b"))
+	check("a removal does not read as a repository", not Games.IsRepository("-SomeFriend/my-game"))
+	check("a prefix capitalises each word of the name", Games.PrefixFor("SomeFriend/my-cool_game") == "MyCoolGameSync")
+	check(
+		"a prefix ignores how the name was typed",
+		Games.PrefixFor("friend/CoolGame") == Games.PrefixFor("FRIEND/coolgame")
+	)
+
+	local builtIn = Games.All(nil)
+	check("with nothing saved, the games are the built-in ones", #builtIn == #Config.GAMES)
+	for _, gameEntry in Config.GAMES do
+		check(
+			`{gameEntry.name} keeps its token under its owner`,
+			gameEntry.tokenSetting == Config.SETTINGS.tokenPrefix .. Config.OwnerOf(gameEntry.repository)
+		)
+	end
+
+	local added = Games.Add(nil, "SomeFriend/My-Game")
+	check("a new repository is added", added.ok and added.isNew and #added.repositories == 1)
+	if added.ok then
+		check("an added game syncs main", added.game.branch == "main")
+		check("an added repository is kept in lower case", added.repositories[1] == "somefriend/my-game")
+		check(
+			"an added game keeps its token under its own repository",
+			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend_2fmy_2dgame"
+		)
+		local games = Games.All(added.repositories)
+		local last = games[#games]
+		check(
+			"a saved game comes after the built-in ones",
+			#games == #Config.GAMES + 1 and last.repository == "somefriend/my-game"
+		)
+		check(
+			"a saved game's attributes start with its prefix",
+			Config.AttributesFor(last).commit == "MyGameSyncCommit"
+		)
+		local again = Games.Add(added.repositories, "SOMEFRIEND/my-game")
+		check("adding a saved game again changes nothing", again.ok and not again.isNew and #again.repositories == 1)
+		local removed = Games.Remove(added.repositories, "SomeFriend/MY-GAME")
+		check(
+			"a saved game is removed with its token setting",
+			#removed.repositories == 0
+				and removed.removed ~= nil
+				and removed.removed.tokenSetting == added.game.tokenSetting
+		)
+	end
+	local first = Games.Add(nil, "a-b/c")
+	local second = Games.Add(nil, "a/b-c")
+	check(
+		"repositories that differ only in where their separators fall keep separate tokens",
+		first.ok and second.ok and first.game.tokenSetting ~= second.game.tokenSetting
+	)
+	check("removing a game nobody saved removes nothing", Games.Remove({ "a/b" }, "c/d").removed == nil)
+
+	local builtInAgain = Games.Add(nil, "aizaidev/cloudseekers")
+	check(
+		"adding a built-in game returns it unsaved",
+		builtInAgain.ok and not builtInAgain.isNew and builtInAgain.game.attributePrefix == "CloudSeekersSync"
+	)
+	check("a repository whose prefix another game uses is refused", not Games.Add(nil, "SomeFriend/Cloud-Seekers").ok)
+	check("text that is not owner/repo is refused", not Games.Add(nil, "my-game").ok)
+	check("a name too long for attribute names is refused", not Games.Add(nil, "a/" .. string.rep("b", 90)).ok)
+	check("a name that fits attribute names is added", Games.Add(nil, "a/" .. string.rep("b", 70)).ok)
+	check("a saved list that is not a list is ignored", #Games.All("broken") == #Config.GAMES)
+	check(
+		"a saved entry that is not owner/repo is ignored",
+		#Games.All({ "SomeFriend/my-game", 42, "not a repo" }) == #Config.GAMES + 1
+	)
 end
 
 do

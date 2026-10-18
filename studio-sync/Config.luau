@@ -1,12 +1,14 @@
 --!strict
 
 --- attributePrefix names the ServerStorage attributes each game's agents read, such as
---- CloudSeekersSyncCommit, so it stays what that game's CLAUDE.md documents.
+--- CloudSeekersSyncCommit, so it stays what that game's CLAUDE.md documents. tokenSetting is the
+--- plugin setting that holds the game's token.
 export type Game = {
 	name: string,
 	repository: string,
 	branch: string,
 	attributePrefix: string,
+	tokenSetting: string,
 }
 
 export type Place = {
@@ -27,11 +29,14 @@ export type Attributes = {
 	seenPrefix: string,
 }
 
+const TOKEN_PREFIX = "StudioSync_Token_"
+
 const CLOUD_SEEKERS: Game = {
 	name = "CloudSeekers",
 	repository = "AizaiDev/CloudSeekers",
 	branch = "main",
 	attributePrefix = "CloudSeekersSync",
+	tokenSetting = TOKEN_PREFIX .. "AizaiDev",
 }
 
 const FLOODED: Game = {
@@ -39,6 +44,7 @@ const FLOODED: Game = {
 	repository = "ExZeret/Flooded",
 	branch = "main",
 	attributePrefix = "FloodedSync",
+	tokenSetting = TOKEN_PREFIX .. "ExZeret",
 }
 
 const EMBLEM_TALES: Game = {
@@ -46,6 +52,7 @@ const EMBLEM_TALES: Game = {
 	repository = "EmblemTales/main",
 	branch = "main",
 	attributePrefix = "EmblemTalesSync",
+	tokenSetting = TOKEN_PREFIX .. "EmblemTales",
 }
 
 local function AttributesFor(game: Game): Attributes
@@ -73,7 +80,8 @@ return {
 	BRANCH = "main",
 	CI_WORKFLOW = "ci",
 	SETTINGS = {
-		tokenPrefix = "StudioSync_Token_",
+		tokenPrefix = TOKEN_PREFIX,
+		games = "StudioSync_Games",
 		autoSync = "StudioSync_AutoSync",
 		showStatus = "StudioSync_ShowStatus",
 		engine = "StudioSync_EngineCode",

@@ -1,8 +1,10 @@
 # Studio Sync
 
 Studio Sync is one Studio plugin that keeps each game's test places on that game's green `main`,
-with nobody connecting Rojo. It serves the games in `studio-sync/Config.luau`: CloudSeekers
-(`AizaiDev/CloudSeekers`), Flooded (`ExZeret/Flooded`) and Emblem Tales (`EmblemTales/main`).
+with nobody connecting Rojo. It knows the games in `studio-sync/Config.luau` out of the box:
+CloudSeekers (`AizaiDev/CloudSeekers`), Flooded (`ExZeret/Flooded`) and Emblem Tales
+(`EmblemTales/main`). Anyone can add their own game from the plugin, with no change to this
+repository; see "Using it for your own game".
 
 The places it syncs are not in this repository. Each game lists its own in a `studio-sync.json` at
 the root of its repository, which only people with that game's token can read:
@@ -39,10 +41,39 @@ powershell -ExecutionPolicy Bypass -File scripts/build-plugin.ps1
 The first time it runs in each place, Studio asks whether it may reach `api.github.com`; allow it.
 If Studio also asks whether it may edit scripts, allow that too.
 
+## Using it for your own game
+
+Your game's repository needs four things, public or private:
+
+- A Rojo project file, such as `default.project.json`, mapping the tree the way Rojo would.
+- A `studio-sync.json` at the root listing the places to sync, as above.
+- A GitHub Actions workflow named exactly `ci` that runs on pushes to `main`. The plugin syncs a
+  commit only once that workflow passed on it, and waits while it has not run.
+- A `main` branch, which is the branch it syncs.
+
+Then make a fine-grained token for it, as "Tokens" describes, and in Studio:
+
+1. Install the plugin and open one of the places your `studio-sync.json` lists.
+2. Press **Add token**, type the repository as `owner/repo` and press Save.
+3. Paste the token in the same box and press Save. Once GitHub accepts it, the plugin keeps the
+   game and its token in this computer's plugin settings, and the place syncs from then on.
+
+Each person who works on the game does the same once per computer. The plugin keeps an added game's
+token under that repository, so it never replaces the token of another game from the same account.
+Type `-owner/repo` in the box to remove a game you added, with its token; a place of that game that is syncing stops.
+
+The plugin names the game's attributes after the repository, ignoring letter case: the name in
+lower case with each word capitalised, the separators dropped, then `Sync`, so `owner/my-game` and
+`owner/My-Game` both write `MyGameSyncCommit`, and `owner/CoolGame` writes `CoolgameSyncCommit`. It
+refuses a repository whose prefix another game already uses, or whose name is too long for
+Roblox's 100-character attribute names. A public repository needs a token too: the plugin checks
+`main` every 5 seconds, far past what GitHub allows without one.
+
 ## Tokens
 
-The game repositories are private, and each belongs to a different GitHub account, so the plugin
-keeps one read-only token per account: `AizaiDev`, `ExZeret` and `EmblemTales`. Each person pastes
+The built-in game repositories are private, and each belongs to a different GitHub account, so the
+plugin keeps one read-only token per account for them: `AizaiDev`, `ExZeret` and `EmblemTales`. A
+game you add keeps its own token. Each person pastes
 the tokens for the games they work on, once per computer; the plugin keeps them in that computer's
 Studio plugin settings. The account's owner makes one token for the game and sends it privately to
 the game's devs.
@@ -157,5 +188,6 @@ It compares the plugin's map with `rojo sourcemap` and exits non-zero on any dif
 CloudSeekers (`default.project.json`), Flooded (`default.project.json hub.project.json`) and Emblem
 Tales (each of its project files).
 
-Adding a game is a row in `GAMES` in `studio-sync/Config.luau`, plus a `studio-sync.json` in its
-repository. Keep place ids and names out of this repository: it is public.
+A game can also be built in, as a row in `GAMES` in `studio-sync/Config.luau`, so nobody has to type
+its repository; it still needs a `studio-sync.json` in its repository. Keep place ids and names out
+of this repository: it is public.
