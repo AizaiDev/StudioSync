@@ -49,7 +49,7 @@ local function SavedRepositories(saved: unknown): { string }
 	return repositories
 end
 
-local function Find(games: { Config.Game }, repository: string): Config.Game?
+local function FindByRepository(games: { Config.Game }, repository: string): Config.Game?
 	const wanted = string.lower(repository)
 	for _, gameInfo in games do
 		if string.lower(gameInfo.repository) == wanted then
@@ -69,7 +69,7 @@ function Games.All(saved: unknown): { Config.Game }
 	end
 	for _, repository in SavedRepositories(saved) do
 		const gameInfo = FromRepository(repository)
-		if not Find(games, repository) and not prefixes[gameInfo.attributePrefix] then
+		if not FindByRepository(games, repository) and not prefixes[gameInfo.attributePrefix] then
 			prefixes[gameInfo.attributePrefix] = true
 			table.insert(games, gameInfo)
 		end
@@ -85,7 +85,7 @@ function Games.Add(saved: unknown, repository: string): Added
 	end
 	const repositories = SavedRepositories(saved)
 	const games = Games.All(repositories)
-	const listed = Find(games, repository)
+	const listed = FindByRepository(games, repository)
 	if listed then
 		return { ok = true, repositories = repositories, game = listed }
 	end

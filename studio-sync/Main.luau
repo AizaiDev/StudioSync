@@ -904,7 +904,7 @@ function Main.Start(context: Context): () -> ()
 		return { refused = probe.refused, problem = if ok then nil else tostring(problem) }
 	end
 
-	local function TokenSaved()
+	local function ReloadAfterTokenSaved()
 		const current = session
 		if current then
 			current.ReloadToken()
@@ -931,7 +931,7 @@ function Main.Start(context: Context): () -> ()
 		if probe.problem then
 			return `Added {gameInfo.repository}, but the saved {owner} token cannot read it ({probe.problem}). Paste one that can.`
 		end
-		TokenSaved()
+		ReloadAfterTokenSaved()
 		return nil
 	end
 
@@ -946,7 +946,7 @@ function Main.Start(context: Context): () -> ()
 				const owner = Config.OwnerOf(gameInfo.repository)
 				plugin:SetSetting(Config.SETTINGS.tokenPrefix .. owner, candidate)
 				print(`{LOG_PREFIX} saved the {owner} token`)
-				TokenSaved()
+				ReloadAfterTokenSaved()
 				return nil
 			elseif not probe.refused then
 				lastProblem = probe.problem
