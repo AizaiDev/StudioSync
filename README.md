@@ -54,21 +54,26 @@ Your game's repository needs four things, public or private:
 Then make a fine-grained token for it, as "Tokens" describes, and in Studio:
 
 1. Install the plugin and open one of the places your `studio-sync.json` lists.
-2. Press **Add token**, type the repository as `owner/repo` and press Save. The plugin keeps it in
-   this computer's plugin settings.
-3. Paste the token in the same box and press Save. The place syncs from then on.
+2. Press **Add token**, type the repository as `owner/repo` and press Save.
+3. Paste the token in the same box and press Save. Once GitHub accepts it, the plugin keeps the
+   game and its token in this computer's plugin settings, and the place syncs from then on.
 
-Each person who works on the game does the same once per computer. The plugin names the game's
-attributes after the repository: each word of its name capitalised, the separators dropped, then
-`Sync`, so `owner/my-game` writes `MyGameSyncCommit`. It refuses a repository whose prefix another
-game already uses. A public repository needs a token too: the plugin checks `main` every 5
-seconds, far past what GitHub allows without one.
+Each person who works on the game does the same once per computer. The plugin keeps an added game's
+token under that repository, so it never replaces the token of another game from the same account.
+Type `-owner/repo` in the box to remove a game you added, with its token.
+
+The plugin names the game's attributes after the repository, ignoring letter case: the name in
+lower case with each word capitalised, the separators dropped, then `Sync`, so `owner/my-game` and
+`owner/My-Game` both write `MyGameSyncCommit`, and `owner/CoolGame` writes `CoolgameSyncCommit`. It
+refuses a repository whose prefix another game already uses, or whose name is too long for
+Roblox's 100-character attribute names. A public repository needs a token too: the plugin checks
+`main` every 5 seconds, far past what GitHub allows without one.
 
 ## Tokens
 
 The built-in game repositories are private, and each belongs to a different GitHub account, so the
-plugin keeps one read-only token per account: `AizaiDev`, `ExZeret` and `EmblemTales`, and one for
-the owner of each game you add. Each person pastes
+plugin keeps one read-only token per account for them: `AizaiDev`, `ExZeret` and `EmblemTales`. A
+game you add keeps its own token. Each person pastes
 the tokens for the games they work on, once per computer; the plugin keeps them in that computer's
 Studio plugin settings. The account's owner makes one token for the game and sends it privately to
 the game's devs.

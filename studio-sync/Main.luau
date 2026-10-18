@@ -22,10 +22,11 @@ const MAX_KEYS_IN_STATUS = 5
 const PAUSED_TEXT = "Auto-sync is paused for everyone in this place. Press Sync now to sync and resume it."
 const ENGINE_FILE_PATTERN = "^([%w_]+)%.luau$"
 const STOPPED_TEXT = "Stopped, because another copy of the plugin took over"
+const REMOVE_PATTERN = "^%-(.+)$"
 const NO_TOKENS_TEXT =
 	"No GitHub tokens yet. Paste your game's read-only token in the box above the status pill. For a game Studio Sync does not know yet, type its repository as owner/repo first."
 const ADD_TOKEN_TEXT =
-	"Paste a read-only GitHub token for another game, or a new one to replace a token GitHub refused. Type owner/repo to add a game."
+	"Paste a read-only GitHub token for another game, or a new one to replace a token GitHub refused. Type owner/repo to add a game, or -owner/repo to remove one you added."
 
 --- status is nil on a loader installed before the status overlay existed.
 export type Buttons = {
@@ -130,12 +131,11 @@ local function StartSyncing(context: Context, place: Config.Place, client: GitHu
 	const attributes = Config.AttributesFor(place.game)
 	const repository = place.game.repository
 	const branch = place.game.branch
-	const owner = Config.OwnerOf(repository)
-	const tokenSetting = Config.SETTINGS.tokenPrefix .. owner
+	const tokenSetting = place.game.tokenSetting
 	const noTokenText =
-		`Error: no GitHub token for {owner}. Paste a read-only token that can read {repository} in the box above the status pill.`
+		`Error: no GitHub token for {repository}. Paste a read-only token that can read it in the box above the status pill.`
 	const refusedTokenText =
-		`Error: GitHub refused the {owner} token. Paste a new one that can read {repository} in the box above the status pill.`
+		`Error: GitHub refused the token for {repository}. Paste a new one that can read it in the box above the status pill.`
 	const localPlayer = Players.LocalPlayer
 	const studioId = if localPlayer then tostring(localPlayer.UserId) else "Local"
 	const statusAttribute = attributes.statusPrefix .. studioId
@@ -878,8 +878,8 @@ function Main.Start(context: Context): () -> ()
 		end
 	end
 
-	local function SavedTokenFor(owner: string): string?
-		const saved = plugin:GetSetting(Config.SETTINGS.tokenPrefix .. owner)
+	local function SavedTokenFor(gameInfo: Config.Game): string?
+		const saved = plugin:GetSetting(gameInfo.tokenSetting)
 		return if type(saved) == "string" and saved ~= "" then saved else nil
 	end
 
@@ -893,6 +893,8 @@ function Main.Start(context: Context): () -> ()
 	local function AllGames(): { Config.Game }
 		return Games.All(plugin:GetSetting(Config.SETTINGS.games))
 	end
+
+	local pendingGame: Games.Added? = nil
 
 	local FindPlace: () -> ()
 
@@ -914,24 +916,39 @@ function Main.Start(context: Context): () -> ()
 		end
 	end
 
+	local function SaveAddedGame(added: Games.Added)
+		if added.ok and added.isNew then
+			plugin:SetSetting(Config.SETTINGS.games, added.repositories)
+			print(`{LOG_PREFIX} added {added.game.repository}; its attributes start {added.game.attributePrefix}`)
+		end
+	end
+
 	local function AddGame(repository: string): string?
 		const added = Games.Add(plugin:GetSetting(Config.SETTINGS.games), repository)
 		if not added.ok then
 			return `Could not add it: {added.problem}.`
 		end
-		plugin:SetSetting(Config.SETTINGS.games, added.repositories)
 		const gameInfo = added.game
-		const owner = Config.OwnerOf(gameInfo.repository)
-		print(`{LOG_PREFIX} added {gameInfo.repository}; its attributes start {gameInfo.attributePrefix}`)
-		const token = SavedTokenFor(owner)
-		if not token then
-			return `Added {gameInfo.repository}. Now paste a read-only token that can read it.`
+		const token = SavedTokenFor(gameInfo)
+		if token and not Probe(gameInfo, token).problem then
+			pendingGame = nil
+			SaveAddedGame(added)
+			ReloadAfterTokenSaved()
+			return nil
 		end
-		const probe = Probe(gameInfo, token)
-		if probe.problem then
-			return `Added {gameInfo.repository}, but the saved {owner} token cannot read it ({probe.problem}). Paste one that can.`
+		pendingGame = added
+		return `Now paste a read-only token that can read {gameInfo.repository}. It is added once GitHub accepts the token.`
+	end
+
+	local function RemoveGame(repository: string): string?
+		const result = Games.Remove(plugin:GetSetting(Config.SETTINGS.games), repository)
+		const removed = result.removed
+		if not removed then
+			return `{repository} is not a game added on this computer.`
 		end
-		ReloadAfterTokenSaved()
+		plugin:SetSetting(Config.SETTINGS.games, result.repositories)
+		plugin:SetSetting(removed.tokenSetting, nil)
+		print(`{LOG_PREFIX} removed {removed.repository} and its token`)
 		return nil
 	end
 
@@ -939,20 +956,36 @@ function Main.Start(context: Context): () -> ()
 		if Games.IsRepository(candidate) then
 			return AddGame(candidate)
 		end
+		const removal = string.match(candidate, REMOVE_PATTERN)
+		if removal and Games.IsRepository(removal) then
+			return RemoveGame(removal)
+		end
+		const games = AllGames()
+		const pending = pendingGame
+		if pending and pending.ok and pending.isNew then
+			table.insert(games, pending.game)
+		end
 		local lastProblem = "it cannot read any game's repository"
-		for _, gameInfo in AllGames() do
+		local savedFor: { string } = {}
+		for _, gameInfo in games do
 			const probe = Probe(gameInfo, candidate)
 			if not probe.problem then
-				const owner = Config.OwnerOf(gameInfo.repository)
-				plugin:SetSetting(Config.SETTINGS.tokenPrefix .. owner, candidate)
-				print(`{LOG_PREFIX} saved the {owner} token`)
-				ReloadAfterTokenSaved()
-				return nil
+				plugin:SetSetting(gameInfo.tokenSetting, candidate)
+				table.insert(savedFor, gameInfo.repository)
+				if pending and pending.ok and pending.game == gameInfo then
+					SaveAddedGame(pending)
+				end
 			elseif not probe.refused then
-				lastProblem = probe.problem
+				lastProblem = probe.problem :: string
 			end
 		end
-		return `That token did not work: {lastProblem}. It needs Read on Contents, Actions and Metadata.`
+		if #savedFor == 0 then
+			return `That token did not work: {lastProblem}. It needs Read on Contents, Actions and Metadata.`
+		end
+		pendingGame = nil
+		print(`{LOG_PREFIX} saved the token for {table.concat(savedFor, ", ")}`)
+		ReloadAfterTokenSaved()
+		return nil
 	end
 
 	local function AskForToken(prompt: string)
@@ -983,8 +1016,7 @@ function Main.Start(context: Context): () -> ()
 		local unreachable = false
 		local stampedWithoutToken: Config.Game? = nil
 		for _, gameInfo in AllGames() do
-			const owner = Config.OwnerOf(gameInfo.repository)
-			const token = SavedTokenFor(owner)
+			const token = SavedTokenFor(gameInfo)
 			const stamped = type(host:GetAttribute(Config.AttributesFor(gameInfo).commit)) == "string"
 			if not token then
 				if stamped then
@@ -1005,7 +1037,7 @@ function Main.Start(context: Context): () -> ()
 						stampedWithoutToken = gameInfo
 					end
 					WarnOnce(
-						`GitHub refused the {owner} token, so {gameInfo.name} places cannot sync. Press Add token to replace it.`
+						`GitHub refused the token saved for {gameInfo.repository}, so its places cannot sync. Press Add token to replace it.`
 					)
 				else
 					unreachable = true
@@ -1027,9 +1059,8 @@ function Main.Start(context: Context): () -> ()
 		end
 		searching = false
 		if stampedWithoutToken then
-			const owner = Config.OwnerOf(stampedWithoutToken.repository)
 			AskForToken(
-				`This place syncs {stampedWithoutToken.name}. Paste the read-only {owner} token, which its owner sends you, in the box above the status pill.`
+				`This place syncs {stampedWithoutToken.name}. Paste a read-only token that can read {stampedWithoutToken.repository}, which its owner sends you, in the box above the status pill.`
 			)
 		elseif not anyToken then
 			AskForToken(NO_TOKENS_TEXT)

@@ -6,8 +6,20 @@ const REPOSITORY_PATTERN = "^[%w%-]+/[%w%-%._]+$"
 const WORD_PATTERN = "[%w]+"
 const PREFIX_SUFFIX = "Sync"
 const DEFAULT_BRANCH = "main"
+const ATTRIBUTE_NAME_LIMIT = 100
+const USER_ID_DIGITS = 12
+const MAX_PREFIX_LENGTH = ATTRIBUTE_NAME_LIMIT - #"Status_" - USER_ID_DIGITS
 
-export type Added = { ok: true, repositories: { string }, game: Config.Game } | { ok: false, problem: string }
+export type Added =
+	{
+		ok: true,
+		game: Config.Game,
+		repositories: { string },
+		isNew: boolean,
+	}
+	| { ok: false, problem: string }
+
+export type Removed = { repositories: { string }, removed: Config.Game? }
 
 const Games = {}
 
@@ -16,10 +28,11 @@ function Games.IsRepository(text: string): boolean
 	return string.match(text, REPOSITORY_PATTERN) ~= nil
 end
 
---- The attribute prefix of a game added from the plugin: its repository's name with each word
---- capitalised and the separators dropped, then Sync, so owner/my-game reads MyGameSync.
+--- The attribute prefix of a game added from the plugin: its repository's name in lower case with
+--- each word capitalised and the separators dropped, then Sync, so owner/My-Game reads MyGameSync
+--- however it was typed.
 function Games.PrefixFor(repository: string): string
-	const name = string.match(repository, "[^/]+$") or repository
+	const name = string.lower(string.match(repository, "[^/]+$") or repository)
 	const words: { string } = {}
 	for word in string.gmatch(name, WORD_PATTERN) do
 		table.insert(words, string.upper(string.sub(word, 1, 1)) .. string.sub(word, 2))
@@ -28,12 +41,28 @@ function Games.PrefixFor(repository: string): string
 end
 
 local function FromRepository(repository: string): Config.Game
+	const canonical = string.lower(repository)
 	return {
 		name = string.match(repository, "[^/]+$") or repository,
-		repository = repository,
+		repository = canonical,
 		branch = DEFAULT_BRANCH,
-		attributePrefix = Games.PrefixFor(repository),
+		attributePrefix = Games.PrefixFor(canonical),
+		tokenSetting = Config.SETTINGS.tokenPrefix .. canonical,
 	}
+end
+
+local function ProblemWith(repository: string): string?
+	if not Games.IsRepository(repository) then
+		return `{repository} is not a repository written as owner/repo`
+	end
+	const prefix = Games.PrefixFor(repository)
+	if prefix == PREFIX_SUFFIX then
+		return `{repository} has no letters or digits in its name`
+	end
+	if #prefix > MAX_PREFIX_LENGTH then
+		return `{repository} has too long a name for Roblox attribute names`
+	end
+	return nil
 end
 
 local function SavedRepositories(saved: unknown): { string }
@@ -42,8 +71,8 @@ local function SavedRepositories(saved: unknown): { string }
 		return repositories
 	end
 	for _, repository in saved :: { unknown } do
-		if type(repository) == "string" and Games.IsRepository(repository) then
-			table.insert(repositories, repository)
+		if type(repository) == "string" and ProblemWith(repository) == nil then
+			table.insert(repositories, string.lower(repository))
 		end
 	end
 	return repositories
@@ -77,22 +106,20 @@ function Games.All(saved: unknown): { Config.Game }
 	return games
 end
 
---- Adds owner/repo to the saved repositories. A game already listed is returned as it is, with the
---- saved list unchanged.
+--- The game for owner/repo and the saved repositories with it added. A game already listed comes
+--- back with isNew false and the saved repositories as they were.
 function Games.Add(saved: unknown, repository: string): Added
-	if not Games.IsRepository(repository) then
-		return { ok = false, problem = `{repository} is not a repository written as owner/repo` }
+	const problem = ProblemWith(repository)
+	if problem then
+		return { ok = false, problem = problem }
 	end
 	const repositories = SavedRepositories(saved)
 	const games = Games.All(repositories)
 	const listed = FindByRepository(games, repository)
 	if listed then
-		return { ok = true, repositories = repositories, game = listed }
+		return { ok = true, game = listed, repositories = repositories, isNew = false }
 	end
 	const gameInfo = FromRepository(repository)
-	if gameInfo.attributePrefix == PREFIX_SUFFIX then
-		return { ok = false, problem = `{repository} has no letters or digits in its name` }
-	end
 	for _, other in games do
 		if other.attributePrefix == gameInfo.attributePrefix then
 			return {
@@ -101,8 +128,23 @@ function Games.Add(saved: unknown, repository: string): Added
 			}
 		end
 	end
-	table.insert(repositories, repository)
-	return { ok = true, repositories = repositories, game = gameInfo }
+	const added = table.clone(repositories)
+	table.insert(added, gameInfo.repository)
+	return { ok = true, game = gameInfo, repositories = added, isNew = true }
+end
+
+--- The saved repositories without owner/repo, and the game that was removed, if it was saved.
+function Games.Remove(saved: unknown, repository: string): Removed
+	const wanted = string.lower(repository)
+	const result: Removed = { repositories = {}, removed = nil }
+	for _, savedRepository in SavedRepositories(saved) do
+		if savedRepository == wanted then
+			result.removed = FromRepository(savedRepository)
+		else
+			table.insert(result.repositories, savedRepository)
+		end
+	end
+	return result
 end
 
 return Games
