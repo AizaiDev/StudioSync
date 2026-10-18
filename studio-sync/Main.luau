@@ -120,8 +120,10 @@ end
 
 const Main = {}
 
+--- Leave stops the session and clears this Studio's lock, Seen and Status attributes.
 type Session = {
 	Stop: () -> (),
+	Leave: () -> (),
 	AskToken: (prompt: string, Submit: (token: string) -> string?) -> (),
 	ReloadToken: () -> (),
 }
@@ -815,15 +817,14 @@ local function StartSyncing(context: Context, place: Config.Place, client: GitHu
 		table.insert(connections, connection)
 	end
 
-	table.insert(
-		connections,
-		plugin.Unloading:Connect(function()
-			Stop()
-			pcall(ReleaseLock)
-			pcall(host.SetAttribute, host, seenAttribute, nil)
-			pcall(host.SetAttribute, host, statusAttribute, nil)
-		end)
-	)
+	local function Leave()
+		Stop()
+		pcall(ReleaseLock)
+		pcall(host.SetAttribute, host, seenAttribute, nil)
+		pcall(host.SetAttribute, host, statusAttribute, nil)
+	end
+
+	table.insert(connections, plugin.Unloading:Connect(Leave))
 
 	task.spawn(function()
 		local manual = context.firstCycleManual == true
@@ -836,6 +837,7 @@ local function StartSyncing(context: Context, place: Config.Place, client: GitHu
 
 	return {
 		Stop = Stop,
+		Leave = Leave,
 		AskToken = function(prompt: string, Submit: (token: string) -> string?)
 			askedForAnotherToken = true
 			overlay.AskToken(prompt, Submit, function()
@@ -894,6 +896,15 @@ function Main.Start(context: Context): () -> ()
 		return Games.All(plugin:GetSetting(Config.SETTINGS.games))
 	end
 
+	local function IsListed(gameInfo: Config.Game): boolean
+		for _, listed in AllGames() do
+			if listed.repository == gameInfo.repository then
+				return true
+			end
+		end
+		return false
+	end
+
 	local pendingGame: Config.Game? = nil
 	local sessionGame: Config.Game? = nil
 
@@ -943,25 +954,29 @@ function Main.Start(context: Context): () -> ()
 	end
 
 	local function RemoveGame(repository: string): string?
+		const pending = pendingGame
+		const wasPending = pending ~= nil and pending.repository == string.lower(repository)
+		if wasPending then
+			pendingGame = nil
+			print(`{LOG_PREFIX} stopped waiting for a token for {repository}`)
+		end
 		const result = Games.Remove(plugin:GetSetting(Config.SETTINGS.games), repository)
 		const removed = result.removed
 		if not removed then
-			return `{repository} is not a game added on this computer.`
+			return if wasPending then nil else `{repository} is not a game added on this computer.`
 		end
 		plugin:SetSetting(Config.SETTINGS.games, result.repositories)
 		plugin:SetSetting(removed.tokenSetting, nil)
 		print(`{LOG_PREFIX} removed {removed.repository} and its token`)
-		const pending = pendingGame
-		if pending and pending.repository == removed.repository then
-			pendingGame = nil
-		end
 		const current = session
 		const currentGame = sessionGame
 		if current and currentGame and currentGame.repository == removed.repository then
 			session = nil
 			sessionGame = nil
-			current.Stop()
+			current.Leave()
 			task.spawn(FindPlace)
+		elseif searching then
+			searchAgain = true
 		end
 		return nil
 	end
@@ -1063,7 +1078,7 @@ function Main.Start(context: Context): () -> ()
 				WarnOnce(`{gameInfo.repository}: {parsed.problem}`)
 			end
 			const entry = parsed.places[game.PlaceId]
-			if entry then
+			if entry and IsListed(gameInfo) then
 				searching = false
 				CloseTokenOverlay()
 				sessionGame = gameInfo

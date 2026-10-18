@@ -47,7 +47,7 @@ local function FromRepository(repository: string): Config.Game
 		repository = canonical,
 		branch = DEFAULT_BRANCH,
 		attributePrefix = Games.PrefixFor(canonical),
-		tokenSetting = Config.SETTINGS.tokenPrefix .. (string.gsub(canonical, "/", "_")),
+		tokenSetting = Config.SETTINGS.tokenPrefix .. (string.gsub(canonical, "[^%w]", "_")),
 	}
 end
 

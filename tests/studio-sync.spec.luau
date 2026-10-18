@@ -295,7 +295,7 @@ do
 		check("an added repository is kept in lower case", added.repositories[1] == "somefriend/my-game")
 		check(
 			"an added game keeps its token under its own repository",
-			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend_my-game"
+			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend_my_game"
 		)
 		local games = Games.All(added.repositories)
 		local last = games[#games]
