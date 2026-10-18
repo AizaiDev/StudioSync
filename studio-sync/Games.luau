@@ -40,6 +40,10 @@ function Games.PrefixFor(repository: string): string
 	return table.concat(words) .. PREFIX_SUFFIX
 end
 
+local function EncodeSeparator(separator: string): string
+	return string.format("_%02x", string.byte(separator))
+end
+
 local function FromRepository(repository: string): Config.Game
 	const canonical = string.lower(repository)
 	return {
@@ -47,7 +51,7 @@ local function FromRepository(repository: string): Config.Game
 		repository = canonical,
 		branch = DEFAULT_BRANCH,
 		attributePrefix = Games.PrefixFor(canonical),
-		tokenSetting = Config.SETTINGS.tokenPrefix .. (string.gsub(canonical, "[^%w]", "_")),
+		tokenSetting = Config.SETTINGS.tokenPrefix .. (string.gsub(canonical, "[^%w]", EncodeSeparator)),
 	}
 end
 

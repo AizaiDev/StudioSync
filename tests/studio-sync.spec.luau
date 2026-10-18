@@ -295,7 +295,7 @@ do
 		check("an added repository is kept in lower case", added.repositories[1] == "somefriend/my-game")
 		check(
 			"an added game keeps its token under its own repository",
-			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend_my_game"
+			added.game.tokenSetting == Config.SETTINGS.tokenPrefix .. "somefriend_2fmy_2dgame"
 		)
 		local games = Games.All(added.repositories)
 		local last = games[#games]
@@ -317,6 +317,12 @@ do
 				and removed.removed.tokenSetting == added.game.tokenSetting
 		)
 	end
+	local first = Games.Add(nil, "a-b/c")
+	local second = Games.Add(nil, "a/b-c")
+	check(
+		"repositories that differ only in where their separators fall keep separate tokens",
+		first.ok and second.ok and first.game.tokenSetting ~= second.game.tokenSetting
+	)
 	check("removing a game nobody saved removes nothing", Games.Remove({ "a/b" }, "c/d").removed == nil)
 
 	local builtInAgain = Games.Add(nil, "aizaidev/cloudseekers")

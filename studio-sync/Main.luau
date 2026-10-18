@@ -120,7 +120,6 @@ end
 
 const Main = {}
 
---- Leave stops the session and clears this Studio's lock, Seen and Status attributes.
 type Session = {
 	Stop: () -> (),
 	Leave: () -> (),
